@@ -138,52 +138,65 @@ echo ""
 
 SETTINGS_FILE="${TARGET}/settings.json"
 if [ -f "$SETTINGS_FILE" ]; then
-    # Check for Bash(*) wildcard
-    if grep -q '"Bash(\*)"' "$SETTINGS_FILE" 2>/dev/null; then
+    # Parse allow/deny lists from JSON
+    ALLOW_LIST=$(python3 -c "
+import json, sys
+try:
+    d = json.load(open('$SETTINGS_FILE'))
+    for item in d.get('permissions', {}).get('allow', []):
+        print(item)
+except: pass
+" 2>/dev/null)
+
+    DENY_LIST=$(python3 -c "
+import json, sys
+try:
+    d = json.load(open('$SETTINGS_FILE'))
+    for item in d.get('permissions', {}).get('deny', []):
+        print(item)
+except: pass
+" 2>/dev/null)
+
+    # Check for Bash(*) wildcard in allow
+    if echo "$ALLOW_LIST" | grep -q '^Bash(\*)$'; then
         finding "CRITICAL" "$SETTINGS_FILE" \
             "Bash(*) in allow list — unrestricted shell access" \
             "Scope to specific commands: Bash(git *), Bash(npm *), etc."
     fi
 
-    # Check for Bash(rm -rf *)
-    if grep -q 'Bash(rm -rf' "$SETTINGS_FILE" 2>/dev/null; then
-        if grep -q '"allow"' "$SETTINGS_FILE" 2>/dev/null && grep -A999 '"allow"' "$SETTINGS_FILE" | grep -q 'Bash(rm -rf'; then
-            finding "CRITICAL" "$SETTINGS_FILE" \
-                "rm -rf in allow list" \
-                "Move to deny list or remove entirely"
-        fi
+    # Check for rm -rf in allow (not deny)
+    if echo "$ALLOW_LIST" | grep -q 'Bash(rm -rf'; then
+        finding "CRITICAL" "$SETTINGS_FILE" \
+            "rm -rf in allow list" \
+            "Move to deny list or remove entirely"
     fi
 
     # Check for missing deny list
-    if ! grep -q '"deny"' "$SETTINGS_FILE" 2>/dev/null; then
+    if [ -z "$DENY_LIST" ]; then
         finding "HIGH" "$SETTINGS_FILE" \
             "No deny list configured" \
             "Add deny list for dangerous commands: rm -rf, git push --force, sudo, etc."
     fi
 
-    # Check for --no-verify in allow list
-    if grep -q '\-\-no-verify' "$SETTINGS_FILE" 2>/dev/null; then
+    # Check for --no-verify in allow
+    if echo "$ALLOW_LIST" | grep -q '\-\-no-verify'; then
         finding "MEDIUM" "$SETTINGS_FILE" \
-            "--no-verify found in permissions — bypasses git hooks" \
+            "--no-verify found in allow list — bypasses git hooks" \
             "Remove --no-verify to enforce pre-commit checks"
     fi
 
-    # Check for sudo in allow list
-    if grep -q '"Bash(sudo' "$SETTINGS_FILE" 2>/dev/null; then
-        if grep -A999 '"allow"' "$SETTINGS_FILE" | grep -q 'Bash(sudo'; then
-            finding "HIGH" "$SETTINGS_FILE" \
-                "sudo in allow list" \
-                "Remove sudo from allow list; add to deny list"
-        fi
+    # Check for sudo in allow
+    if echo "$ALLOW_LIST" | grep -q 'Bash(sudo'; then
+        finding "HIGH" "$SETTINGS_FILE" \
+            "sudo in allow list" \
+            "Remove sudo from allow list; add to deny list"
     fi
 
-    # Check for curl/wget in allow list
-    if grep -q '"Bash(curl\|"Bash(wget' "$SETTINGS_FILE" 2>/dev/null; then
-        if grep -A999 '"allow"' "$SETTINGS_FILE" | grep -qE 'Bash\(curl|Bash\(wget'; then
-            finding "MEDIUM" "$SETTINGS_FILE" \
-                "curl/wget in allow list — potential data exfiltration vector" \
-                "Consider moving to deny list or scoping to specific URLs"
-        fi
+    # Check for curl/wget in allow
+    if echo "$ALLOW_LIST" | grep -qE 'Bash\(curl|Bash\(wget'; then
+        finding "MEDIUM" "$SETTINGS_FILE" \
+            "curl/wget in allow list — potential data exfiltration vector" \
+            "Consider moving to deny list or scoping to specific URLs"
     fi
 else
     finding "INFO" "$SETTINGS_FILE" \
