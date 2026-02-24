@@ -18,13 +18,14 @@ cd ~/Workspace/prismx
 ## Usage
 
 ```bash
-./install.sh              # Preview diff + confirm install
-./install.sh --dry-run    # Preview only
-./install.sh --force      # Skip confirmation
-./install.sh --only hooks # Install only hooks
+make diff                      # Preview only (recommended first step)
+make apply                     # Install with confirmation
+make apply-force               # Install without confirmation
+make apply-only C=hooks        # Install only one component
+make apply-only-force C=skills # Install one component without confirmation
 
-./uninstall.sh            # Remove managed files
-./uninstall.sh --restore ~/.claude/backups/<timestamp>  # Restore from backup
+make uninstall                 # Remove managed files
+make restore B=~/.claude/backups/<timestamp>  # Restore from backup
 ```
 
 ## Structure
