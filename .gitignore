@@ -3,3 +3,9 @@
 
 # Runtime / local
 .claude/settings.local.json
+
+# Handoffs
+.claude/handoffs
+
+# Upstream reference repos (cloned via git submodule)
+refs/

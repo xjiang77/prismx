@@ -1,0 +1,9 @@
+[submodule "refs/claude-handoff"]
+	path = refs/claude-handoff
+	url = https://github.com/willseltzer/claude-handoff.git
+[submodule "refs/superpowers"]
+	path = refs/superpowers
+	url = https://github.com/obra/superpowers.git
+[submodule "refs/everything-claude-code"]
+	path = refs/everything-claude-code
+	url = https://github.com/affaan-m/everything-claude-code.git

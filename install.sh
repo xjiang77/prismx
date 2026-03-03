@@ -6,6 +6,16 @@ SOURCE_DIR="$SCRIPT_DIR/claude"
 TARGET_DIR="$HOME/.claude"
 MANIFEST_FILE="$TARGET_DIR/.prismx-manifest"
 
+# Load previous manifest for orphan detection
+OLD_MANIFEST_FILES=()
+if [ -f "$MANIFEST_FILE" ]; then
+  while IFS= read -r line; do
+    [[ "$line" == \#* ]] && continue
+    [[ -z "$line" ]] && continue
+    OLD_MANIFEST_FILES+=("$line")
+  done < "$MANIFEST_FILE"
+fi
+
 # Colors
 RED='\033[0;31m'
 GREEN='\033[0;32m'
@@ -19,6 +29,9 @@ DRY_RUN=false
 FORCE=false
 ONLY=""
 
+# Resolve GH_TOKEN once (used for settings.json placeholder replacement)
+GH_TOKEN="${GITHUB_PERSONAL_ACCESS_TOKEN:-$(gh auth token 2>/dev/null || echo "")}"
+
 while [[ $# -gt 0 ]]; do
   case "$1" in
     --dry-run) DRY_RUN=true; shift ;;
@@ -30,7 +43,7 @@ while [[ $# -gt 0 ]]; do
       echo "Options:"
       echo "  --dry-run          Preview changes without installing"
       echo "  --force            Skip confirmation prompt"
-      echo "  --only <component> Install only: hooks, skills, agents, core, templates, scripts"
+      echo "  --only <component> Install only: hooks, skills, agents, commands, core, templates, scripts"
       exit 0
       ;;
     *) echo "Unknown option: $1"; exit 1 ;;
@@ -62,7 +75,6 @@ EXCLUDE_PATTERNS=(
   "backups/"
   "config/"
   "usage-data/"
-  "commands/"
   "memory/"
 )
 
@@ -86,7 +98,8 @@ should_include() {
     core)      [[ "$rel_path" == CLAUDE.md || "$rel_path" == settings.json || "$rel_path" == statusline-command.sh || "$rel_path" == Makefile ]] ;;
     templates) [[ "$rel_path" == templates/* ]] ;;
     scripts)   [[ "$rel_path" == scripts/* ]] ;;
-    *) echo "Unknown component: $ONLY (use: hooks, skills, agents, core, templates, scripts)"; exit 1 ;;
+    commands)  [[ "$rel_path" == commands/* ]] ;;
+    *) echo "Unknown component: $ONLY (use: hooks, skills, agents, commands, core, templates, scripts)"; exit 1 ;;
   esac
 }
 
@@ -120,7 +133,7 @@ while IFS= read -r -d '' file; do
     # For settings.json, compare after __HOME__ replacement
     if [[ "$rel_path" == "settings.json" ]]; then
       temp_file=$(mktemp)
-      sed "s|__HOME__|$HOME|g" "$file" > "$temp_file"
+      sed -e "s|__HOME__|$HOME|g" -e "s|__GH_TOKEN__|$GH_TOKEN|g" "$file" > "$temp_file"
       if ! diff -q "$temp_file" "$target_file" &>/dev/null; then
         CHANGED_FILES+=("$rel_path")
         echo -e "  ${YELLOW}~ $rel_path${NC} (changed)"
@@ -145,11 +158,29 @@ while IFS= read -r -d '' file; do
   fi
 done < <(find "$SOURCE_DIR" -type f -print0 | sort -z)
 
+# Detect orphaned files (in old manifest but not in new file list)
+ORPHAN_FILES=()
+if [ -z "$ONLY" ]; then
+  for old_file in ${OLD_MANIFEST_FILES[@]+"${OLD_MANIFEST_FILES[@]}"}; do
+    found=false
+    for new_file in ${ALL_FILES[@]+"${ALL_FILES[@]}"}; do
+      if [ "$old_file" = "$new_file" ]; then
+        found=true
+        break
+      fi
+    done
+    if ! $found && [ -f "$TARGET_DIR/$old_file" ]; then
+      ORPHAN_FILES+=("$old_file")
+      echo -e "  ${RED}- $old_file${NC} (orphaned)"
+    fi
+  done
+fi
+
 echo ""
-echo -e "${BOLD}Summary:${NC} ${GREEN}${#NEW_FILES[@]} new${NC}, ${YELLOW}${#CHANGED_FILES[@]} changed${NC}, ${DIM}${#UNCHANGED_FILES[@]} unchanged${NC}"
+echo -e "${BOLD}Summary:${NC} ${GREEN}${#NEW_FILES[@]} new${NC}, ${YELLOW}${#CHANGED_FILES[@]} changed${NC}, ${DIM}${#UNCHANGED_FILES[@]} unchanged${NC}, ${RED}${#ORPHAN_FILES[@]} orphaned${NC}"
 
 # Nothing to do?
-if [ ${#NEW_FILES[@]} -eq 0 ] && [ ${#CHANGED_FILES[@]} -eq 0 ]; then
+if [ ${#NEW_FILES[@]} -eq 0 ] && [ ${#CHANGED_FILES[@]} -eq 0 ] && [ ${#ORPHAN_FILES[@]} -eq 0 ]; then
   echo -e "\n${GREEN}Everything up to date.${NC}"
   exit 0
 fi
@@ -170,7 +201,7 @@ fi
 # Backup
 BACKUP_DIR="$TARGET_DIR/backups/$(date +%Y%m%d-%H%M%S)"
 mkdir -p "$BACKUP_DIR"
-for rel_path in "${CHANGED_FILES[@]}"; do
+for rel_path in ${CHANGED_FILES[@]+"${CHANGED_FILES[@]}"}; do
   target_file="$TARGET_DIR/$rel_path"
   if [ -f "$target_file" ]; then
     backup_file="$BACKUP_DIR/$rel_path"
@@ -182,13 +213,13 @@ echo -e "\n${DIM}Backup saved to: $BACKUP_DIR${NC}"
 
 # Install
 echo ""
-for rel_path in "${NEW_FILES[@]}" "${CHANGED_FILES[@]}"; do
+for rel_path in ${NEW_FILES[@]+"${NEW_FILES[@]}"} ${CHANGED_FILES[@]+"${CHANGED_FILES[@]}"}; do
   source_file="$SOURCE_DIR/$rel_path"
   target_file="$TARGET_DIR/$rel_path"
   mkdir -p "$(dirname "$target_file")"
 
   if [[ "$rel_path" == "settings.json" ]]; then
-    sed "s|__HOME__|$HOME|g" "$source_file" > "$target_file"
+    sed -e "s|__HOME__|$HOME|g" -e "s|__GH_TOKEN__|$GH_TOKEN|g" "$source_file" > "$target_file"
   else
     cp "$source_file" "$target_file"
   fi
@@ -201,10 +232,28 @@ for rel_path in "${NEW_FILES[@]}" "${CHANGED_FILES[@]}"; do
   echo -e "  ${GREEN}✓${NC} $rel_path"
 done
 
+# Remove orphaned files
+for rel_path in ${ORPHAN_FILES[@]+"${ORPHAN_FILES[@]}"}; do
+  target_file="$TARGET_DIR/$rel_path"
+  if [ -f "$target_file" ]; then
+    backup_file="$BACKUP_DIR/$rel_path"
+    mkdir -p "$(dirname "$backup_file")"
+    cp "$target_file" "$backup_file"
+    rm "$target_file"
+    # Remove empty parent directories up to TARGET_DIR
+    parent_dir="$(dirname "$target_file")"
+    while [ "$parent_dir" != "$TARGET_DIR" ] && [ -d "$parent_dir" ]; do
+      rmdir "$parent_dir" 2>/dev/null || break
+      parent_dir="$(dirname "$parent_dir")"
+    done
+    echo -e "  ${RED}✗${NC} $rel_path (removed)"
+  fi
+done
+
 # Write manifest
 echo "# Prismx managed files — $(date +%Y-%m-%d)" > "$MANIFEST_FILE"
 for rel_path in "${ALL_FILES[@]}"; do
   echo "$rel_path" >> "$MANIFEST_FILE"
 done
 
-echo -e "\n${GREEN}${BOLD}Install complete.${NC} (${#NEW_FILES[@]} new, ${#CHANGED_FILES[@]} updated)"
+echo -e "\n${GREEN}${BOLD}Install complete.${NC} (${#NEW_FILES[@]} new, ${#CHANGED_FILES[@]} updated, ${#ORPHAN_FILES[@]} removed)"

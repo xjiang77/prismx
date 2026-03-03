@@ -23,6 +23,7 @@ update: ## Pull latest from prismx and reinstall
 	@if [ -n "$(PRISMX_DIR)" ] && [ -f "$(PRISMX_DIR)/install.sh" ]; then \
 		echo "=== Updating from Prismx ==="; \
 		git -C "$(PRISMX_DIR)" pull --rebase; \
+		git -C "$(PRISMX_DIR)" submodule update --init --recursive; \
 		"$(PRISMX_DIR)/install.sh" --force; \
 	else \
 		echo "=== Updating from git ==="; \
@@ -39,6 +40,9 @@ doctor: ## Diagnose common issues
 list: ## List installed skills, hooks, plugins, permissions
 	@echo "=== Hooks ==="
 	@ls -1 $(CLAUDE_DIR)/hooks/*.sh 2>/dev/null | xargs -I{} basename {} || echo "  (none)"
+	@echo ""
+	@echo "=== Commands ==="
+	@ls -1 $(CLAUDE_DIR)/commands/ 2>/dev/null | grep -v .gitkeep || echo "  (none)"
 	@echo ""
 	@echo "=== Skills ==="
 	@ls -1 $(CLAUDE_DIR)/skills/ 2>/dev/null | grep -v .gitkeep || echo "  (none)"
@@ -70,6 +74,15 @@ audit-project: ## Audit project config (P=<path>)
 		echo "  CLAUDE.md: $$lines lines"; \
 	fi
 
+context-review: ## Review context configuration (plugins, skills, hooks)
+	@$(CLAUDE_DIR)/scripts/context-review.sh
+
+context-optimize: ## Optimize context (push|sync|auto)
+	@$(CLAUDE_DIR)/scripts/context-optimize.sh $(or $(CMD),auto)
+
+context-verify: ## Verify context config matches prismx source
+	@$(CLAUDE_DIR)/scripts/context-verify.sh
+
 install-codex: ## Sync CLAUDE.md → ~/.codex/AGENTS.md
 	@$(CLAUDE_DIR)/scripts/sync-agents.sh codex
 
@@ -79,4 +92,4 @@ install-codebuddy: ## Sync CLAUDE.md → ~/.codebuddy/CLAUDE.md
 sync: ## Sync config to all agents (Codex + CodeBuddy)
 	@$(CLAUDE_DIR)/scripts/sync-agents.sh all
 
-.PHONY: help install update audit doctor list init-project audit-project install-codex install-codebuddy sync
+.PHONY: help install update audit doctor list context-review context-optimize context-verify init-project audit-project install-codex install-codebuddy sync

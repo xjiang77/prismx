@@ -21,13 +21,13 @@ apply-force: ## Install without confirmation prompt
 install-force: apply-force ## Alias of apply-force
 
 apply-only: ## Install one component only. Usage: make apply-only C=hooks
-	@test -n "$(C)" || (echo "Usage: make apply-only C=hooks|skills|agents|core|templates|scripts"; exit 1)
+	@test -n "$(C)" || (echo "Usage: make apply-only C=hooks|skills|agents|commands|core|templates|scripts"; exit 1)
 	@$(ROOT_DIR)/install.sh --only "$(C)"
 
 install-only: apply-only ## Alias of apply-only
 
 apply-only-force: ## Install one component only without confirmation. Usage: make apply-only-force C=hooks
-	@test -n "$(C)" || (echo "Usage: make apply-only-force C=hooks|skills|agents|core|templates|scripts"; exit 1)
+	@test -n "$(C)" || (echo "Usage: make apply-only-force C=hooks|skills|agents|commands|core|templates|scripts"; exit 1)
 	@$(ROOT_DIR)/install.sh --force --only "$(C)"
 
 install-only-force: apply-only-force ## Alias of apply-only-force
@@ -51,4 +51,16 @@ list: ## List installed hooks/skills/plugins/permissions from ~/.claude
 sync: ## Sync CLAUDE.md to Codex + CodeBuddy from installed ~/.claude
 	@make -C "$(CLAUDE_HOME)" sync
 
-.PHONY: help diff preview apply install apply-force install-force apply-only install-only apply-only-force install-only-force uninstall restore doctor audit list sync
+upstream-init: ## Initialize reference submodules
+	git submodule update --init --recursive
+
+upstream-update: ## Pull latest from upstream repos
+	git submodule update --remote --merge
+
+upstream-diff: ## Show upstream changes since last pin
+	@for dir in refs/*/; do \
+		echo "=== $${dir} ==="; \
+		(cd "$$dir" && git log --oneline HEAD@{1}..HEAD 2>/dev/null || echo "  (no changes)"); \
+	done
+
+.PHONY: help diff preview apply install apply-force install-force apply-only install-only apply-only-force install-only-force uninstall restore doctor audit list sync upstream-init upstream-update upstream-diff
